@@ -1,4 +1,4 @@
-Survival Analysis model for predicting mortality caused by Heart Failure.
+Survival Analysis model in "R" language for predicting mortality caused by Heart Failure.
 
 Introduction : 
 Cardiovascular diseases claim the lives of approximately 17 million people worldwide each
