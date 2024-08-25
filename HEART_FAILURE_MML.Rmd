@@ -1,0 +1,211 @@
+---
+title: "Heart-Failure-Survival Analysis-Project"
+author: "Martial_Mallika_Lakshmi"
+date: "`r Sys.Date()`"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 70
+---
+Survival Analysis model for predicting mortality caused by Heart Failure.
+
+Introduction : Cardiovascular diseases claim the lives of approximately
+17 million people worldwide each year, primarily manifesting as heart
+attacks and heart failure. Heart failure (HF) occurs when the heart is
+unable to pump sufficient blood to meet the body's needs.
+
+Electronic medical records (EMRs) of patients provide a wealth of data,
+including symptoms, physical characteristics, and clinical laboratory
+test results. This data can be analyzed using biostatistics to uncover
+patterns and correlations that might be missed by medical professionals.
+
+Machine learning, in particular, offers powerful tools for predicting
+patient survival based on their medical data. It can also identify the
+most critical features within these records, providing valuable insights
+for healthcare providers.
+
+Dataset : The dataset includes cardiovascular medical records from 299
+patients, consisting of 105 women and 194 men aged between 40 and 95
+years. All patients were diagnosed with systolic dysfunction of the left
+ventricle and had a history of heart failure. Consequently, each patient
+was classified into either class III or class IV of the New York Heart
+Association (NYHA) classification, indicating various stages of heart
+failure.
+
+#Load survival library
+```{r}
+suppressMessages(library(survival))
+suppressMessages(library(tidyverse))
+suppressMessages(library(lubridate))
+suppressMessages(library(broom))
+suppressMessages(library(ggfortify))
+suppressMessages(library(survminer))
+```
+#Load the dataset, EDA : This section aims to explore dataset data before performing any kind of analysis.
+```{r}
+setwd("C:/Users/selva/Documents/DSTI/Survival Analysis")
+data<-read.csv("heart_failure_clinical_records_dataset.csv")
+summary(data)
+```
+we can see that there are some continous variable that should be
+categorical like anaemia, diabetes, high_blood_pressure, sex , smoking
+and DEATH_EVENT Let's categorize them
+
+
+
+# Categorize variables
+# Anaemia
+```{r}
+df= data %>%
+  mutate(anaemia = factor(anaemia, levels = c(0, 1), labels = c("N", "Y")),
+         diabetes =factor(diabetes, levels = c(0, 1), labels = c("N", "Y")),
+         high_blood_pressure = factor(high_blood_pressure, levels = c(0, 1), labels = c("N", "Y")),
+         sex =factor(sex, levels = c(0, 1), labels = c("F", "M")),
+         smoking=factor(smoking, levels = c(0, 1), labels = c("N", "Y")),
+         DEATH_EVENT=factor(DEATH_EVENT, levels = c(0, 1), labels = c("CENSOR", "EVENT")))
+
+par(mfrow =c(2,3))
+barplot(table(df$anaemia), main = "Anaemia", col = "lightblue")
+barplot(table(df$diabetes), main = "Diabetes", col = "lightgreen")
+barplot(table(df$high_blood_pressure), main = "High Blood Pressure", col = "lightcoral")
+barplot(table(df$sex), main = "Sex", col = "lightgoldenrod")
+barplot(table(df$smoking), main = "Smoking", col = "lightpink")
+barplot(table(df$DEATH_EVENT), main = "EVENT", col = "lightgray")
+```
+```{r}
+str(df)
+```
+# Basic Non-Parametric estimation of survival : Here we are performing basic analysis using **Kaplan-Meier** methods.
+```{r}
+kmsurvival = survfit(Surv(df$time, df$DEATH_EVENT) ~ 1)
+#summary(kmsurvival)
+```
+
+```{r}
+autoplot(kmsurvival, xlab="days", ylab="Survival Probability", surv.linetype = 'dashed', 
+         surv.colour = 'blue',
+         conf.int.fill = 'dodgerblue3', conf.int.alpha = 0.5)+
+  labs(title = "Kaplan-Meier Survival Curve", subtitle = "With 95% Confidence Interval") 
+```
+The survival curve starts at 100% and gradually declines, indicating
+that the probability of survival decreases over time as more events
+(deaths) occurs.
+
+# Non-Parametric Groups Analysis : This section aims to perform different group analysis on the dataset. 
+# Gender Analysis It seems from the analysis that males are living longer than females
+```{r}
+kmsurvival_gender = survfit(Surv(df$time, df$DEATH_EVENT) ~ df$sex)
+#summary(kmsurvival_gender)
+```
+
+```{r}
+autoplot(kmsurvival_gender,
+         censor.shape = '*', facets = TRUE, ncol = 2, xlab="Time", ylab="Survival Probability")
+```
+Initially, both groups have high survival probabilities, but as time
+progresses, differences become more apparent. Males generally have a
+higher survival probability compared to females at the early stages but
+this might change at later stages depending on the number of events and
+sample size. The number of events (deaths) varies over time. For
+example, at time 10, females had 1 death while males had 5 deaths,
+showing that more deaths occurred in males at this specific time point.
+```{r}
+# Perform the Log-rank test
+logrank_test <- survdiff(Surv(time, DEATH_EVENT == "EVENT") ~ sex, data = df)
+
+# Print the results
+logrank_test
+```
+The log-rank test suggests that there is no evidence to reject the null
+hypothesis that the survival curves for males and females are the same.
+This is consistent with the findings from the Cox proportional hazards
+model, where the effect of sex on survival was also not statistically
+significant.
+```{r}
+# Perform the Log-rank test for the DEATH_EVENT effect
+logrank_test_death <- survdiff(Surv(time, DEATH_EVENT == "EVENT") ~ DEATH_EVENT, data = df)
+# Print the log-rank test results
+print(logrank_test_death)
+```
+This test doesn't provide new insights because it compares the survival
+outcomes based on the outcome itself, which is inherently circular. The
+extremely small p-value confirms this obvious distinction between the
+two groups.
+
+# Semi-parametric Cox regression
+```{r}
+# Fit the Cox Proportional Hazards model
+cox_model <- coxph(Surv(time, DEATH_EVENT == "EVENT") ~ anaemia + diabetes + high_blood_pressure 
+                   + sex + smoking, data = df)
+# Summarize the Cox model
+summary(cox_model)
+```
+High Blood Pressure (high_blood_pressureY) is the only predictor with a
+statistically significant effect on the hazard of the event, with a
+hazard ratio of approximately 1.56. This suggests that individuals with
+high blood pressure have a 56% higher risk of the event (DEATH_EVENT)
+compared to those without, controlling for other factors in the model.
+
+Other predictors (anaemia, diabetes, sex, smoking) did not show
+statistically significant associations with the event at the
+conventional 0.05 significance level. The model's concordance index
+(0.583) indicates modest predictive ability.
+
+```{r}
+# Extract the terms from the Cox model
+model_terms <- terms(cox_model)
+# Get the variable names
+variable_names <- attr(model_terms, "term.labels")
+print(variable_names)
+```
+```{r}
+# Use ggforest to plot the Cox model coefficients
+ggforest(cox_model)
+```
+```{r}
+# to visualize the coefficients with error bars:
+library(ggplot2)
+# Extract coefficients and standard errors from the Cox model
+cox_summary <- summary(cox_model)
+coefficients <- cox_summary$coefficients
+# Create a data frame with the necessary information
+cox_coef_df <- data.frame(
+  Covariate = rownames(coefficients),
+  coef = coefficients[, "coef"],
+  se_coef = coefficients[, "se(coef)"]
+)
+# Plot the coefficients with error bars
+ggplot(cox_coef_df, aes(x = Covariate, y = coef)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = coef - se_coef, ymax = coef + se_coef), width = 0.2) + 
+  labs(title = "Cox Proportional Hazards Model", x = "Covariates", y = "Coefficients") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+```
+Summary:
+
+anaemiaY: The coefficient is positive and the confidence interval does
+not include zero, indicating that anemia is likely associated with an
+increased hazard (higher risk) of the event occurring.
+
+high_blood_pressureY : The coefficient is positive and the confidence
+interval does not include zero, indicating that its likely associated
+with an increased hazard (higher risk) of the event occurring.
+
+diabetesY, sexM, smokingY: The confidence intervals for these covariates
+all are below zero, suggesting that their effects are not statistically
+significant in this model. This means that these covariates may not have
+a strong impact on the hazard rate in this dataset.
+
+Hence high_blood_pressureY and anemia appears to be a significant risk
+factor in this Cox proportional hazards model, whereas the other
+variables do not show a statistically significant effect based on this
+plot.
+
+The limitations of the study is a small dataset, which restricts us to
+get more insightful information.
+
+Furthermore,  good awareness programs that  communicate  the  benefits 
+of  a  heart  healthy diet and physically active lifestyle could prove 
+to be effective and may help to reduce the mortality rate due to heart 
+failure conditions.
